@@ -172,6 +172,13 @@ onMounted(async () => {
             <el-table-column label="修正" width="80">
               <template #default="{ row }">{{ row.manualAdjusted ? '人工' : '自动' }}</template>
             </el-table-column>
+            <el-table-column label="依据状态" width="110">
+              <template #default="{ row }">
+                <el-tag size="small" :type="row.basisValid ? 'success' : 'danger'">
+                  {{ row.basisValid ? '有效' : `失效${row.invalidReasons?.length ? '·' + row.invalidReasons.map((r: string) => (r === 'joints' ? '节理' : '涌水')).join('/') : ''}` }}
+                </el-tag>
+              </template>
+            </el-table-column>
           </el-table>
           <el-empty v-if="history.length === 0" description="尚无历史判定" :image-size="60" />
         </el-card>

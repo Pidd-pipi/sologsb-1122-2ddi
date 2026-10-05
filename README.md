@@ -58,12 +58,13 @@ sologsb-1122/
         ├── main.ts
         ├── App.vue
         ├── router/index.ts
-        ├── types/{face,joint,grade,water}.ts
-        ├── stores/{face,joint,grade}Store.ts
+        ├── types/{face,joint,grade,water,sync}.ts
+        ├── stores/{face,joint,grade,sync}Store.ts
         ├── components/common/{SketchCanvas,JointPolarPlot,GradeTag,FaceCard}.vue
+        ├── components/sync/FaceDiffReport.vue
         ├── hooks/{useFaceFilter,useGradeCalc}.ts
-        ├── pages/{FaceList,FaceDetail,JointEntry,WaterView,GradeJudge}.vue
-        └── utils/{db,geoMath,id}.ts
+        ├── pages/{FaceList,FaceDetail,JointEntry,WaterView,GradeJudge,SyncCenter,BatchDetail}.vue
+        └── utils/{db,geoMath,id,sync}.ts
 ```
 
 ## 页面与路由
@@ -78,11 +79,30 @@ sologsb-1122/
 
 `/` 重定向到 `/faces`，未匹配路由同样兜底到 `/faces`。
 
+| 路由 | 页面 | 说明 |
+| --- | --- | --- |
+| `/sync` | 离线批次中心：新建/导入/导出/提交批次，查看合入报告与差异 | CatalogBatch |
+| `/sync/:id` | 单批次离线编录工作台：在不改动主库的前提下暂存掌子面/节理/涌水/级别修改 | CatalogBatch |
+
+## 离线批次合并（双平板协同）
+
+解决「两台平板分开记录、回到项目部先导入者盖掉后者」与「旧级别沿用旧节理/涌水」两个问题：
+
+- **批次（Batch）为提交与幂等单位**：每台平板离线期间把改动暂存进批次，携带创建时的共同祖先快照与按掌子面的基线修订号（`baseRev`）。
+- **并发只一份写入（CAS）**：提交在单个 IndexedDB 事务内比较各掌子面修订号，对端已先提交则整批不写入，批次转为「冲突」，其全部修改原样保留并提示冲突批次。
+- **原样重试**：冲突后可不改内容重新提交；对端仍在则再次冲突。也可「保留两版合入」。
+- **保留两版 + 差异标注**：保留两版合入对掌子面做字段级三方合并（仅本批次改的字段写入、两边都改保留库中版本），并在合入报告中按 共同基线 / 库中（对端）/ 本批次 三列标出字段、节理组、涌水的新增/删除/两边都改。
+- **依据失效与重新判定**：每条级别记录保存节理组与涌水的依据签名（`basisSignature`）。合入后签名变化（节理组或涌水状态改变）时，旧级别置 `basisValid=false` 并记 `invalidReasons`，同时按当前节理自动估 Jv、按当前涌水重推出水状态，重算 BQ/[BQ] 生成一条新级别（`prevGradeId` 链接旧级别；人工修正级别保留人工级别，仅刷新指标）。
+- **幂等、旧批次不重复计入**：批次 id 即幂等键，重复提交、重复导入同一批次直接返回既有合入报告，不重复写任何表；外部「已合入」批次导入默认仅存档，不覆盖本机主数据。
+
+> 纯前端单机内可用「模拟平板A / 平板B」切换设备 + 导出/导入批次文件复现整条流程；`scripts/verify-sync.ts` 用 fake-indexeddb 覆盖并发冲突、原样重试、保留两版、失效重判与幂等。
+
 ## 数据存储说明
 
-- 数据库名 `gbtunnelface`，当前结构版本 **v2**（`localStorage['gbtunnelface:db-version']` 记录）。
-- 四张表：`faces`（掌子面）、`joints`（节理组）、`grades`（围岩级别判定）、`waters`（涌水记录）。
+- 数据库名 `gbtunnelface`，当前结构版本 **v3**（`localStorage['gbtunnelface:db-version']` 记录）。
+- 五张表：`faces`（掌子面）、`joints`（节理组）、`grades`（围岩级别判定）、`waters`（涌水记录）、`batches`（离线编录批次）。
 - v1 → v2 迁移：为老掌子面补 `attitude`、`mileageRange`，为级别记录补 `correctedBq`、`manualAdjusted`，为涌水补 `chainage`，并新增索引。
+- v2 → v3 迁移：新增 `batches` 表；为级别记录补判定依据签名 `basisSignature`、`basisValid`、`invalidReasons`、`basedOnBatches`（按迁移当时的节理组/涌水回填签名）。
 - 岩性素描的结构面线段单独存 `localStorage['gbtunnelface:sketch:<faceId>']`，刷新后仍在。
 - 容器无状态、不挂载命名卷；清空站点数据即回到初始示范数据。
 - 首次打开灌入 2 个示范掌子面、4 组节理、1 条级别判定与 3 条涌水记录。
@@ -94,3 +114,4 @@ sologsb-1122/
 - **素描交互**：`<SketchCanvas>` 在图上单击即按当前岩层产状布置结构面线段，带岩性填充纹样、比例尺、图例与撤销/清空，线段本地持久化。
 - **节理统计**：`<JointPolarPlot>` 等面积投影极点图 + 走向玫瑰图，按组着色；按倾向 30° 聚类支持同组产状合并。
 - **异常提示**：倾角超出 0~90° 直接拦截；涌水量较上一点翻倍或趋势突增标记为突变点并给出措施。
+- **离线批次合并**：双平板并发提交按掌子面修订号做 CAS（只一份写入、另一份保留修改并提示冲突、可原样重试）；同一掌子面两边都改可保留两版并三方标差异；节理组/涌水依据变化后关联级别自动失效并重判；批次幂等，旧批次不重复计入。

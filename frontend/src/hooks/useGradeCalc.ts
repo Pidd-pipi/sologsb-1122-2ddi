@@ -1,5 +1,12 @@
 import { computed, ref } from 'vue';
-import { GRADE_SUPPORT, type Groundwater, type RockGrade } from '../types/grade';
+import {
+  GRADE_SUPPORT,
+  GROUNDWATER_K1,
+  gradeFromBq,
+  spanK2,
+  type Groundwater,
+  type RockGrade,
+} from '../types/grade';
 import { estimateJv } from '../utils/geoMath';
 import { round } from '../utils/id';
 import type { JointSet } from '../types/joint';
@@ -32,37 +39,11 @@ export interface GradeCalcResult {
   explanation: string[];
 }
 
-/** 出水状态 → 地下水修正系数 K1（简化取值） */
-export const GROUNDWATER_K1: Record<Groundwater, number> = {
-  干燥: 0,
-  潮湿: 0.05,
-  点滴状出水: 0.1,
-  线状出水: 0.18,
-  涌流状出水: 0.28,
-};
-
-/** 洞跨 → 主要软弱结构面修正系数 K2（简化取值） */
-export function spanK2(spanWidth: number): number {
-  if (spanWidth < 5) return 0;
-  if (spanWidth < 10) return 0.03;
-  if (spanWidth < 15) return 0.06;
-  if (spanWidth < 20) return 0.1;
-  return 0.15;
-}
-
-/** 由 [BQ] 映射围岩级别 */
-export function gradeFromBq(correctedBq: number): RockGrade {
-  if (correctedBq > 550) return 'Ⅰ';
-  if (correctedBq > 450) return 'Ⅱ';
-  if (correctedBq > 350) return 'Ⅲ';
-  if (correctedBq > 250) return 'Ⅳ';
-  if (correctedBq > 150) return 'Ⅴ';
-  return 'Ⅵ';
-}
-
 /**
  * 按 BQ/RQD/Jv/Kv 与洞跨修正实时算出围岩级别与支护建议。
  * 被围岩级别判定页（/grade/:faceId）消费。
+ * 判定常量（GROUNDWATER_K1 / spanK2 / gradeFromBq）统一定义在 types/grade.ts，
+ * 供离线批次合并后的失效重判复用。
  */
 export function useGradeCalc(jointsOfFace?: () => JointSet[]) {
   const input = ref<GradeCalcInput>({

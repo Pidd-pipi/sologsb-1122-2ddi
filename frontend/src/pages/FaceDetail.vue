@@ -95,8 +95,20 @@ onMounted(async () => {
 
         <el-card shadow="never">
           <template #header><strong>级别与支护</strong></template>
+          <el-alert
+            v-if="latest && !latest.basisValid"
+            type="error"
+            :closable="false"
+            show-icon
+            style="margin-bottom: 8px"
+            :title="`该级别所依据的${latest.invalidReasons
+              .map((r) => (r === 'joints' ? '节理组' : '涌水状态'))
+              .join('、')}已变化，判定失效`"
+            description="离线批次合并后已按当前节理与涌水重新判定，见下方判定链中的最新一条。"
+          />
           <div v-if="latest" class="grade-box">
             <GradeTag :grade="latest.grade" />
+            <el-tag v-if="latest.prevGradeId" size="small" type="warning" effect="plain">合并后重新判定</el-tag>
             <span class="muted">[BQ] = {{ latest.correctedBq }}（BQ {{ latest.bqValue }}，修正 {{ latest.correction }}）</span>
             <p class="support">{{ latest.supportSuggestion || GRADE_SUPPORT[latest.grade] }}</p>
             <p class="muted">{{ gradeCompare }}</p>

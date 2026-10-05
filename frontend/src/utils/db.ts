@@ -2,11 +2,13 @@ import Dexie, { type Table } from 'dexie';
 import type { TunnelFace } from '../types/face';
 import type { JointSet } from '../types/joint';
 import type { RockMassGrade } from '../types/grade';
+import { jointsBasisSignature, waterBasisSignature } from '../types/grade';
 import type { WaterInflow } from '../types/water';
+import type { CatalogBatch } from '../types/sync';
 import { newId } from './id';
 
 export const DB_NAME = 'gbtunnelface';
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
 export const LS_VERSION_KEY = 'gbtunnelface:db-version';
 
 class TunnelFaceDB extends Dexie {
@@ -14,6 +16,7 @@ class TunnelFaceDB extends Dexie {
   joints!: Table<JointSet, string>;
   grades!: Table<RockMassGrade, string>;
   waters!: Table<WaterInflow, string>;
+  batches!: Table<CatalogBatch, string>;
 
   constructor() {
     super(DB_NAME);
@@ -50,6 +53,41 @@ class TunnelFaceDB extends Dexie {
           .toCollection()
           .modify((row: any) => {
             if (row.chainage === undefined) row.chainage = 0;
+          });
+      });
+    this.version(3)
+      .stores({
+        faces: 'id, faceNo, chainage, lithology, excavationMethod, weathering, recordedAt',
+        joints: 'id, faceId, setNo, dipDirection, dipAngle, fillMaterial',
+        grades:
+          'id, faceId, grade, judgedAt, bqValue, basisValid, prevGradeId, *basedOnBatches',
+        waters: 'id, faceId, chainage, type, changeTrend',
+        batches: 'id, deviceId, status, createdAt, submittedAt, mergedAt, *faceIds',
+      })
+      .upgrade(async (tx) => {
+        // 为既有级别记录回填「判定依据」字段：按迁移当时的节理组/涌水生成签名，
+        // 使老记录也参与合并后的失效重判；basisValid 初始为有效。
+        const joints = await tx
+          .table('joints')
+          .toArray()
+          .then((rows: any[]) => rows as unknown as import('../types/joint').JointSet[]);
+        const waters = await tx
+          .table('waters')
+          .toArray()
+          .then((rows: any[]) => rows as unknown as import('../types/water').WaterInflow[]);
+        await tx
+          .table('grades')
+          .toCollection()
+          .modify((row: any) => {
+            if (row.basisValid === undefined) row.basisValid = true;
+            if (row.invalidReasons === undefined) row.invalidReasons = [];
+            if (row.basedOnBatches === undefined) row.basedOnBatches = [];
+            if (!row.basisSignature) {
+              row.basisSignature = {
+                joints: jointsBasisSignature(joints.filter((j) => j.faceId === row.faceId)),
+                water: waterBasisSignature(waters.filter((w) => w.faceId === row.faceId)),
+              };
+            }
           });
       });
   }
@@ -200,6 +238,10 @@ export async function ensureSeedData(): Promise<void> {
       supportSuggestion: '系统锚杆（φ25，L=3.0 m，间距 1.0 m）+ 喷射混凝土 12 cm + 钢筋网',
       manualAdjusted: false,
       judgedAt: now - 2 * day,
+      basisValid: true,
+      invalidReasons: [],
+      basisSignature: { joints: '', water: '' },
+      basedOnBatches: [],
     },
   ];
 
@@ -241,6 +283,12 @@ export async function ensureSeedData(): Promise<void> {
       chainage: 12484,
     },
   ];
+
+  // 为示范级别记录按当前节理/涌水生成依据签名，使其一并纳入合并后的失效重判
+  grades[0].basisSignature = {
+    joints: jointsBasisSignature(joints.filter((j) => j.faceId === face1)),
+    water: waterBasisSignature(waters.filter((w) => w.faceId === face1)),
+  };
 
   await db.transaction('rw', db.faces, db.joints, db.grades, db.waters, async () => {
     await db.faces.bulkPut(faces);

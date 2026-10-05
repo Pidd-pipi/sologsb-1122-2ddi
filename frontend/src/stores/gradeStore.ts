@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { db, toPlain } from '../utils/db';
 import { newId } from '../utils/id';
 import type { RockMassGrade, RockMassGradeDraft } from '../types/grade';
+import { jointsBasisSignature, waterBasisSignature } from '../types/grade';
 import type { WaterInflow, WaterInflowDraft } from '../types/water';
 
 interface GradeState {
@@ -29,7 +30,23 @@ export const useGradeStore = defineStore('grade', {
       this.loaded = true;
     },
     async addGrade(draft: RockMassGradeDraft) {
-      const record: RockMassGrade = { ...toPlain(draft), id: newId('grade'), judgedAt: Date.now() };
+      // 判定依据签名：记录当前节理组与涌水摘要，离线批次合并后据此判断是否失效
+      const [faceJoints, faceWaters] = await Promise.all([
+        db.joints.where('faceId').equals(draft.faceId).toArray(),
+        db.waters.where('faceId').equals(draft.faceId).toArray(),
+      ]);
+      const record: RockMassGrade = {
+        ...toPlain(draft),
+        id: newId('grade'),
+        judgedAt: Date.now(),
+        basisValid: true,
+        invalidReasons: [],
+        basisSignature: {
+          joints: jointsBasisSignature(faceJoints),
+          water: waterBasisSignature(faceWaters),
+        },
+        basedOnBatches: [],
+      };
       await db.grades.put(toPlain(record));
       this.items = [record, ...this.items];
       return record;

@@ -4,6 +4,8 @@ import FaceDetail from '../pages/FaceDetail.vue';
 import JointEntry from '../pages/JointEntry.vue';
 import WaterView from '../pages/WaterView.vue';
 import GradeJudge from '../pages/GradeJudge.vue';
+import SyncCenter from '../pages/SyncCenter.vue';
+import BatchDetail from '../pages/BatchDetail.vue';
 
 const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/faces' },
@@ -12,6 +14,8 @@ const routes: RouteRecordRaw[] = [
   { path: '/faces/:id/joints', name: 'joint-entry', component: JointEntry },
   { path: '/faces/:id/water', name: 'water-view', component: WaterView },
   { path: '/grade/:faceId', name: 'grade-judge', component: GradeJudge },
+  { path: '/sync', name: 'sync-center', component: SyncCenter },
+  { path: '/sync/:id', name: 'batch-detail', component: BatchDetail },
   { path: '/:pathMatch(.*)*', redirect: '/faces' },
 ];
 
