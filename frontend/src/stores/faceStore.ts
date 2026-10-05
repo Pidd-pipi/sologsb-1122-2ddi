@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { db, toPlain } from '../utils/db';
 import { newId } from '../utils/id';
+import { logRemove, logUpsert } from '../services/changeLog';
 import type { TunnelFace, TunnelFaceDraft } from '../types/face';
 
 interface FaceState {
@@ -24,17 +25,19 @@ export const useFaceStore = defineStore('face', {
     },
     async add(draft: TunnelFaceDraft) {
       const record: TunnelFace = { ...toPlain(draft), id: newId('face'), recordedAt: Date.now() };
-      await db.faces.put(toPlain(record));
-      this.items = [...this.items, record].sort((a, b) => b.chainage - a.chainage);
-      return record;
+      const saved = (await logUpsert('faces', record, record.id)) as unknown as TunnelFace;
+      this.items = [...this.items, saved].sort((a, b) => b.chainage - a.chainage);
+      return saved;
     },
     async update(id: string, patch: Partial<TunnelFace>) {
-      const plain = toPlain(patch);
-      await db.faces.update(id, plain);
-      this.items = this.items.map((it) => (it.id === id ? { ...it, ...plain } : it));
+      const current = this.items.find((it) => it.id === id) ?? (await db.faces.get(id));
+      if (!current) return;
+      const next: TunnelFace = { ...current, ...toPlain(patch) };
+      const saved = (await logUpsert('faces', next, id)) as unknown as TunnelFace;
+      this.items = this.items.map((it) => (it.id === id ? saved : it));
     },
     async remove(id: string) {
-      await db.faces.delete(id);
+      await logRemove('faces', id, id);
       this.items = this.items.filter((it) => it.id !== id);
     },
     /** 复制上一循环（里程更小的最近一个掌子面）的信息作为草稿 */

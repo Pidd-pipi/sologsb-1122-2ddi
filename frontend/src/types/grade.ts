@@ -32,6 +32,23 @@ export interface RockMassGrade {
   supportSuggestion: string;
   /** 是否人工修正级别 */
   manualAdjusted: boolean;
+  /**
+   * 是否已失效：其依据（节理组或涌水状态）在判定之后发生变化时置 true。
+   * 失效后不再代表当前围岩级别，需重新判定。
+   */
+  invalid?: boolean;
+  /** 失效原因（节理组变化 / 涌水状态变化 / 合并批次后依据变化） */
+  invalidReason?: string;
+  /** 失效时间 */
+  invalidatedAt?: number;
+  /** 是否为依据变化后按新参数自动重判生成 */
+  autoRejudged?: boolean;
+  /** 自动重判的原因说明 */
+  autoRejudgeReason?: string;
+  /** 判定时的节理组依据签名（用于检测节理变化后级别失效） */
+  basisJointSig?: string;
+  /** 判定时的涌水依据签名（用于检测涌水变化后级别失效） */
+  basisWaterSig?: string;
   judgedAt: number;
 }
 

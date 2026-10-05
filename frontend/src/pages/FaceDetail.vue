@@ -9,6 +9,7 @@ import SketchCanvas from '../components/common/SketchCanvas.vue';
 import GradeTag from '../components/common/GradeTag.vue';
 import { attitudeText, formatChainage } from '../utils/geoMath';
 import { GRADE_SUPPORT } from '../types/grade';
+import { diffFields } from '../services/mergePlan';
 
 const route = useRoute();
 const router = useRouter();
@@ -21,7 +22,15 @@ const face = computed(() => faceStore.byId(faceId.value));
 const joints = computed(() => jointStore.byFace(faceId.value));
 const grades = computed(() => gradeStore.byFace(faceId.value));
 const latest = computed(() => grades.value[0]);
-const previousGrade = computed(() => grades.value[1]);
+const latestValid = computed(() => gradeStore.validByFace(faceId.value));
+/** 最近一次失效记录（其依据已变化） */
+const invalidated = computed(() => grades.value.find((g) => g.invalid === true));
+const previousGrade = computed(() => grades.value.filter((g) => g.invalid !== true)[1]);
+
+/** 两版都留的合并冲突：对端归档版本与字段差异 */
+const remoteDiffs = computed(() =>
+  face.value?.remoteSnapshot ? diffFields(face.value, face.value.remoteSnapshot) : [],
+);
 
 const { result, patch } = useGradeCalc(() => joints.value);
 const segmentCount = ref(0);
@@ -33,14 +42,14 @@ function onSketchChange(segs: { id: string }[]): void {
 
 /** 与上循环级别比对结论 */
 const gradeCompare = computed(() => {
-  if (!latest.value) return '本掌子面尚无级别判定记录';
-  if (!previousGrade.value) return `本掌子面首次判定为 ${latest.value.grade} 级围岩`;
+  if (!latestValid.value) return '';
+  if (!previousGrade.value) return `本掌子面首次判定为 ${latestValid.value.grade} 级围岩`;
   const order = ['Ⅰ', 'Ⅱ', 'Ⅲ', 'Ⅳ', 'Ⅴ', 'Ⅵ'];
-  const delta = order.indexOf(latest.value.grade) - order.indexOf(previousGrade.value.grade);
-  if (delta === 0) return `与上一循环一致（${latest.value.grade} 级）`;
+  const delta = order.indexOf(latestValid.value.grade) - order.indexOf(previousGrade.value.grade);
+  if (delta === 0) return `与上一循环一致（${latestValid.value.grade} 级）`;
   return delta > 0
-    ? `较上一循环变差 ${delta} 级：${previousGrade.value.grade} → ${latest.value.grade}`
-    : `较上一循环变好 ${-delta} 级：${previousGrade.value.grade} → ${latest.value.grade}`;
+    ? `较上一循环变差 ${delta} 级：${previousGrade.value.grade} → ${latestValid.value.grade}`
+    : `较上一循环变好 ${-delta} 级：${previousGrade.value.grade} → ${latestValid.value.grade}`;
 });
 
 onMounted(async () => {
@@ -57,8 +66,11 @@ onMounted(async () => {
   <div class="page">
     <div class="header">
       <h2>掌子面详情 · {{ face?.faceNo ?? '未找到' }}</h2>
-      <GradeTag v-if="latest" :grade="latest.grade" />
+      <GradeTag v-if="latestValid" :grade="latestValid.grade" />
       <el-tag v-else type="info">未判定级别</el-tag>
+      <el-tag v-if="invalidated" type="danger" effect="dark">
+        原 {{ invalidated.grade }} 级已失效
+      </el-tag>
       <el-tag type="info" effect="plain">节理 {{ joints.length }} 组</el-tag>
       <div class="spacer" />
       <el-button type="primary" @click="router.push(`/faces/${faceId}/joints`)">节理录入</el-button>
@@ -95,11 +107,31 @@ onMounted(async () => {
 
         <el-card shadow="never">
           <template #header><strong>级别与支护</strong></template>
-          <div v-if="latest" class="grade-box">
-            <GradeTag :grade="latest.grade" />
-            <span class="muted">[BQ] = {{ latest.correctedBq }}（BQ {{ latest.bqValue }}，修正 {{ latest.correction }}）</span>
-            <p class="support">{{ latest.supportSuggestion || GRADE_SUPPORT[latest.grade] }}</p>
+          <el-alert
+            v-if="invalidated"
+            :title="`原 ${invalidated.grade} 级判定已失效：${invalidated.invalidReason ?? '依据发生变化'}`"
+            :type="latestValid ? 'warning' : 'error'"
+            :closable="false"
+            show-icon
+            style="margin-bottom: 8px"
+          />
+          <div v-if="latestValid" class="grade-box">
+            <div class="grade-line">
+              <GradeTag :grade="latestValid.grade" />
+              <el-tag v-if="latestValid.autoRejudged" size="small" type="warning">依据变化后自动重判</el-tag>
+              <el-tag v-else-if="latestValid.manualAdjusted" size="small">人工修正</el-tag>
+            </div>
+            <span class="muted">[BQ] = {{ latestValid.correctedBq }}（BQ {{ latestValid.bqValue }}，修正 {{ latestValid.correction }}）</span>
+            <p v-if="latestValid.autoRejudgeReason" class="muted rejudge-note">{{ latestValid.autoRejudgeReason }}</p>
+            <p class="support">{{ latestValid.supportSuggestion || GRADE_SUPPORT[latestValid.grade] }}</p>
             <p class="muted">{{ gradeCompare }}</p>
+            <div v-if="invalidated" class="stale-old">
+              失效记录：{{ invalidated.grade }} 级（BQ {{ invalidated.bqValue }}，[BQ] {{ invalidated.correctedBq }}）
+            </div>
+          </div>
+          <div v-else-if="invalidated">
+            <p class="muted">原级别已失效，且为人工修正结论，需人工重新判定：</p>
+            <el-button type="primary" size="small" @click="router.push(`/grade/${faceId}`)">前往重新判定</el-button>
           </div>
           <div v-else>
             <p class="muted">尚未判定级别，按当前参数实时试算：</p>
@@ -143,6 +175,29 @@ onMounted(async () => {
         />
       </el-card>
     </div>
+
+    <el-card v-if="face && face.remoteSnapshot" shadow="never" class="remote-card">
+      <template #header>
+        <div class="card-head">
+          <strong>合并保留的对端版本（两版都留）</strong>
+          <el-tag size="small" type="warning">存在 {{ remoteDiffs.length }} 处差异</el-tag>
+          <span v-if="face.remoteSource" class="muted">来源 {{ face.remoteSource }}</span>
+        </div>
+      </template>
+      <el-table :data="remoteDiffs" size="small" border>
+        <el-table-column prop="label" label="差异字段" width="150" />
+        <el-table-column label="本机版本（当前主版本）" min-width="180">
+          <template #default="{ row }"><span class="local-val">{{ row.local }}</span></template>
+        </el-table-column>
+        <el-table-column label="对端版本（归档保留）" min-width="180">
+          <template #default="{ row }"><span class="remote-val">{{ row.remote }}</span></template>
+        </el-table-column>
+      </el-table>
+      <p class="muted" style="margin: 8px 0 0">
+        对端编号 {{ face.remoteSnapshot.faceNo }} · {{ face.remoteSnapshot.lithology }}（{{ face.remoteSnapshot.weathering }}）
+        · {{ formatChainage(face.remoteSnapshot.chainage) }} · 地质员 {{ face.remoteSnapshot.geologist }}
+      </p>
+    </el-card>
   </div>
 </template>
 
@@ -194,5 +249,26 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+.grade-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rejudge-note {
+  margin: 2px 0;
+}
+.stale-old {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #b04a2f;
+  text-decoration: line-through;
+  opacity: 0.85;
+}
+.remote-card :deep(.local-val) {
+  color: #1f4f8a;
+}
+.remote-card :deep(.remote-val) {
+  color: #b45309;
 }
 </style>

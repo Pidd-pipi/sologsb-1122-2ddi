@@ -23,6 +23,7 @@ const emit = defineEmits<{
       <strong>{{ face.faceNo }}</strong>
       <GradeTag :grade="grade" />
       <el-tag size="small" effect="plain">{{ face.excavationMethod }}</el-tag>
+      <el-tag v-if="face.remoteSnapshot" size="small" type="warning">两版差异</el-tag>
     </div>
     <div class="line">
       桩号 {{ formatChainage(face.chainage) }} · 编录区间

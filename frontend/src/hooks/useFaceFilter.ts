@@ -51,7 +51,7 @@ export function useFaceFilter(initial?: Partial<FaceFilters>) {
         if (face.chainage < f.chainageFrom || face.chainage > f.chainageTo) return false;
         if (f.lithology !== 'all' && face.lithology !== f.lithology) return false;
         if (f.method !== 'all' && face.excavationMethod !== f.method) return false;
-        const grade = gradeStore.latestByFace(face.id)?.grade;
+        const grade = gradeStore.validByFace(face.id)?.grade;
         if (f.grade !== 'all' && grade !== f.grade) return false;
         if (kw) {
           const hit =
@@ -64,7 +64,7 @@ export function useFaceFilter(initial?: Partial<FaceFilters>) {
       })
       .map((face) => ({
         face,
-        grade: gradeStore.latestByFace(face.id)?.grade,
+        grade: gradeStore.validByFace(face.id)?.grade,
         lastRecordedAt: face.recordedAt,
       }));
     rows.sort((a, b) => b.face.chainage - a.face.chainage);

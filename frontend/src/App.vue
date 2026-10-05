@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { readDbVersion } from './utils/db';
+import { readDbVersion, db } from './utils/db';
 
 const route = useRoute();
 const router = useRouter();
@@ -13,10 +13,20 @@ const activeMenu = computed(() => {
     return '/faces';
   }
   if (route.path.startsWith('/grade')) return '/grade';
+  if (route.path.startsWith('/sync')) return '/sync';
   return '/faces';
 });
 
 const version = readDbVersion();
+const pendingConflicts = ref(0);
+
+async function refreshConflictCount() {
+  try {
+    pendingConflicts.value = await db.conflicts.filter((c) => c.status === 'pending').count();
+  } catch {
+    pendingConflicts.value = 0;
+  }
+}
 
 function onSelect(index: string) {
   if (index === '/faces/joints' || index === '/faces/water' || index === '/grade') {
@@ -26,6 +36,13 @@ function onSelect(index: string) {
   }
   void router.push(index);
 }
+
+watch(() => route.path, () => void refreshConflictCount());
+onMounted(() => {
+  void refreshConflictCount();
+  // 跨标签页提交后刷新角标
+  window.addEventListener('focus', () => void refreshConflictCount());
+});
 </script>
 
 <template>
@@ -37,11 +54,15 @@ function onSelect(index: string) {
         <el-menu-item index="/faces/joints">节理产状</el-menu-item>
         <el-menu-item index="/faces/water">涌水记录</el-menu-item>
         <el-menu-item index="/grade">围岩级别</el-menu-item>
+        <el-menu-item index="/sync">
+          离线批次
+          <el-badge v-if="pendingConflicts" :value="pendingConflicts" class="sync-badge" type="danger" />
+        </el-menu-item>
       </el-menu>
       <el-tag size="small" effect="plain">本地结构版本 v{{ version }}</el-tag>
     </el-header>
     <el-main class="app-main">
-      <router-view />
+      <router-view @committed="refreshConflictCount" />
     </el-main>
   </el-container>
 </template>
@@ -78,5 +99,8 @@ function onSelect(index: string) {
 }
 .app-main {
   padding: 18px 22px 40px;
+}
+.sync-badge {
+  margin-left: 6px;
 }
 </style>

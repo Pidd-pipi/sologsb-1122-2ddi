@@ -34,6 +34,9 @@ export interface JointSet {
   waterWet: WaterWet;
   /** 条数 */
   jointCount: number;
+  /** 最近一次修改时间（离线合并冲突判定用） */
+  updatedAt?: number;
+  updatedBy?: string;
 }
 
 export type JointSetDraft = Omit<JointSet, 'id'>;

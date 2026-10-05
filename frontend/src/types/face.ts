@@ -39,6 +39,14 @@ export interface TunnelFace {
   attitude: Attitude;
   recordedAt: number;
   geologist: string;
+  /** 最近一次修改时间（离线合并冲突判定用） */
+  updatedAt?: number;
+  /** 最近一次修改设备 id */
+  updatedBy?: string;
+  /** face-diverge 冲突中两版都留时，归档进来的对端版本 */
+  remoteSnapshot?: TunnelFace;
+  /** 归档版本的来源批次/设备说明 */
+  remoteSource?: string;
 }
 
 export type TunnelFaceDraft = Omit<TunnelFace, 'id' | 'recordedAt'>;

@@ -20,7 +20,18 @@ const faceId = computed(() => String(route.params.faceId ?? ''));
 const face = computed(() => faceStore.byId(faceId.value));
 const joints = computed(() => jointStore.byFace(faceId.value));
 const history = computed(() => gradeStore.byFace(faceId.value));
-const previous = computed(() => history.value[0]);
+const previous = computed(() => gradeStore.validByFace(faceId.value));
+const invalidatedLatest = computed(() => history.value.find((g) => g.invalid === true));
+
+const invalidDesc = computed(() => {
+  if (!invalidatedLatest.value) return '';
+  if (previous.value) {
+    return `系统已按最新节理/涌水参数自动重判为 ${previous.value.grade} 级${
+      previous.value.manualAdjusted ? '' : '，可在下方核对后保存为正式判定'
+    }。`;
+  }
+  return '该级别为人工修正结论，系统未自动覆盖，请根据最新节理与涌水重新判定并保存。';
+});
 
 const { input, result, patch } = useGradeCalc(() => joints.value);
 const manual = ref(false);
@@ -66,6 +77,7 @@ async function save() {
     supportSuggestion: finalSupport.value,
     manualAdjusted: manual.value,
   });
+  await gradeStore.load();
   ElMessage.success(`已保存 ${finalGrade.value} 级围岩判定`);
 }
 
@@ -94,6 +106,15 @@ onMounted(async () => {
     </div>
 
     <el-alert v-if="!face" type="warning" :closable="false" show-icon title="未找到该掌子面" />
+
+    <el-alert
+      v-if="invalidatedLatest"
+      :title="`原 ${invalidatedLatest.grade} 级判定已失效：${invalidatedLatest.invalidReason ?? '节理组或涌水依据已变化'}`"
+      :description="invalidDesc"
+      type="warning"
+      :closable="false"
+      show-icon
+    />
 
     <div class="grid">
       <el-card shadow="never">
@@ -171,6 +192,13 @@ onMounted(async () => {
             <el-table-column prop="groundwater" label="出水" width="120" />
             <el-table-column label="修正" width="80">
               <template #default="{ row }">{{ row.manualAdjusted ? '人工' : '自动' }}</template>
+            </el-table-column>
+            <el-table-column label="状态" width="110">
+              <template #default="{ row }">
+                <el-tag v-if="row.invalid" size="small" type="danger">已失效</el-tag>
+                <el-tag v-else-if="row.autoRejudged" size="small" type="warning">自动重判</el-tag>
+                <el-tag v-else size="small" type="success">有效</el-tag>
+              </template>
             </el-table-column>
           </el-table>
           <el-empty v-if="history.length === 0" description="尚无历史判定" :image-size="60" />
